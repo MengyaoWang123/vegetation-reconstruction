@@ -1,0 +1,439 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-03-11"
+---
+
+For plotting the global map of Hengl
+```{r}
+# Load required libraries
+library(raster)
+library(rasterVis)
+```
+#Option 1
+```{r}
+library(raster)
+library(rasterVis)
+library(lattice)
+hengl_global <- raster::brick("/Users/nanqiangbeidiao/pnv_biome.type_biome00k_c_250m_s0..0cm_2000..2017_v0.2.tif")
+
+# Define breaks for categorization
+breaks <- c(0, 1, 2, 3, 4,7,8,9,13,14,15,16,17,18,19,20,22,27,28,30,31,32) 
+
+# Generate automatic color palette based on the number of breaks
+num_colors <- length(breaks) - 1
+color_palette <- colorRampPalette(c("#d4ce46","#7bc043","#0d9263","#0e5135","#f09609","#FE7027","#aa6f73", "#1ba1e2", "#a200ff", "#e86af0","#7bb3ff","hotpink","#c79dd7","#1b3de2", "#00aba9","#fdf498","#00C2C4","#494b4b","#264b96","#d11141","#fa3c4c"))(num_colors)
+
+# Plot the raster with categories
+plot_hengl <- levelplot(hengl_global, margin = FALSE, at = breaks, col.regions = color_palette)
+
+print(plot_hengl)
+```
+
+
+Option 2 For plotting a part of the Hengl map
+```{r}
+library(sf)
+```
+
+
+```{r}
+library(rnaturalearth)
+library(sf)
+library(dplyr)
+library(tidyr)
+library(raster)
+library(ggplot2)
+library(terra)
+library(tidyr)
+
+hengl_global2 <- brick("/Users/nanqiangbeidiao/pnv_biome.type_biome00k_c_250m_s0..0cm_2000..2017_v0.2.tif")
+
+library(raster)
+# Load the shapefile
+land_polyg <- shapefile("/Users/nanqiangbeidiao/Master_project/ne_10m_land/ne_10m_land.shp")
+# Transform the spatial object
+land_polyg1 <- spTransform(land_polyg, CRS("+proj=longlat +datum=WGS84"))
+# Define the extent
+ext <- extent(-10,200,15,75)
+# Crop the spatial object
+land_polyg_cropped <- crop(land_polyg1, ext)
+# Convert to Simple Features object
+land_polyg_sf <- as(land_polyg_cropped, "sf")
+ 
+ggplot() +
+  geom_sf(data=land_polyg_sf, fill=NA, lwd=1, alpha=0.3) +
+  theme_test()
+
+hengl_map <- hengl_global2 %>% 
+  crop(land_polyg_sf) %>%
+  mask(land_polyg_sf) 
+
+plot_map <- plot(hengl_map)
+
+saveRDS(hengl_map, file = "hengl_map.rds")
+saveRDS(land_polyg_sf, file = "land_polyg_sf.rds")
+saveRDS(plot_map, file = "plot_map.rds")
+
+```
+
+
+
+```{r}
+#import three resolutoins rds documents.
+library(tiff)
+library(raster)
+
+hengl_meng <- readRDS("hengl_meng.rds")
+
+hengl_meng_2500 <- readRDS("hengl_meng_2500.rds")
+hengl_2500 <- raster("hengl_meng_2500m.tif")
+hengl_meng_5000 <- readRDS("hengl_meng_5000.rds")
+hengl_5000 <- raster("hengl_meng_5000m.tif")
+
+```
+
+
+
+```{r}
+library(dplyr)
+library(raster)
+library(tibble)
+
+number <- read.csv("/Users/nanqiangbeidiao/pnv_biome.type_biome00k_c_250m_s0..0cm_2000..2017_v0.2.tif.csv") %>%
+  dplyr::select(Number,My_pnv)
+
+map_2500_res <- hengl_2500 %>%
+  rasterToPoints() %>%
+  as_tibble() %>%
+  inner_join(number, by=c("hengl_meng_2500m"="Number"))  %>%
+  rename(name = My_pnv) %>%
+  mutate(resolution = "2500m")
+  
+map_5000_res <- hengl_5000 %>%
+  raster::rasterToPoints() %>%
+  tibble::as_tibble() %>%
+  inner_join(number, by=c("hengl_meng_5000m"="Number")) %>%
+  rename(name = My_pnv) %>%
+  mutate(resolution = "5000m")
+
+unique(map_5000_res$hengl_meng_5000m)
+
+saveRDS(map_2500_res, file = "map_2500_res.rds") 
+saveRDS(map_5000_res, file = "map_5000_res.rds")
+
+```
+
+
+```{r}
+# Read input points
+readRDS("smodern_pollen.rds")
+base_data <- smpdsv2 %>%
+  dplyr::select(id_sample, longitude,latitude,mi:map)
+
+hengl_data <- srandom_data_percent %>%
+  ungroup() %>%
+  pivot_longer(cols = -c(pnv, id_sample)) %>%
+  filter(value > 0) %>%
+  inner_join(base_data, by= c("id_sample")) %>%
+  distinct()
+
+write.csv(hengl_data,"/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/hengl_data.csv", row.names = F)
+  
+```
+
+
+```{r}
+#import useful documents
+land_polyg_sf <- readRDS("/Users/nanqiangbeidiao/land_polyg_sf.rds")
+map_2500_res <- readRDS("/Users/nanqiangbeidiao/map_2500_res.rds")
+map_5000_res <- readRDS("/Users/nanqiangbeidiao/map_5000_res.rds")
+hengl_data <- read.csv("/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/hengl_data.csv")
+
+colores<- c("XRTW"="#E6706E",
+            "STEP"="#FAD272",
+            "DESE"="#F7FFCA",
+            "TDBF"="#FFC0CB",
+            "TENW"="#8FB83E",
+            "CODF"="#58D68D",
+            "CMXF"="#A2D9CE",
+            "CONF"="#239B56",
+            "WTMF"="#CCCCFF",
+            "CENF"="#B03E8D",
+            "TUND"="#DFFF00",
+            "TSNA"="#ed9121",
+            "TDFW"="#858536",
+            "TEBF"="#ffdddd",
+            "TSBF"="#dce2b8")
+                                        
+```
+
+
+```{r}
+#graph of 5000m resolution
+library(ggplot2)
+library(ggspatial)
+
+plot_map <- ggplot() +
+  geom_sf(data=land_polyg_sf, fill=NA, size=0.2, alpha=0.3) +
+  geom_tile(data=map_5000_res, aes(x = x, y = y, fill = name)) +
+  geom_point(data = hengl_data, aes(x=longitude,y=latitude,fill=pnv),size=1,shape=21,stroke=0.3) +
+  scale_fill_manual(values = colores) +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(subtitle = "Hengl map with training data") +
+  ggspatial::annotation_north_arrow(location = "tr", which_north = "true",height = unit(10, "mm"), width = unit(10, "mm"), pad_x = unit(2, "mm"), pad_y = unit(2, "mm"),style = ggspatial::north_arrow_nautical(fill = c("grey40", "white"),line_col = "grey20", text_family = "Arial",text_size = 5.5)) +
+  annotate(geom = "text", x = 34.25, y = 43.25, label = "Black Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 20, y = 34, label = "Mediterranean Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 50.2, y = 42.5, label = "Caspian", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 50.4, y = 41, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 39, y = 20, label = "Red", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 39, y = 18.5, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 65, y = 20, label = "Arabian Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 90, y = 19, label = "Bay of", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 90, y = 17.5, label = "Bengal", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 116, y = 18, label = "South China", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 116, y = 17, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 151.5, y = 35, label = "Pacific Ocean", 
+    fontface = "italic", color = "gray25", size = 3) +
+  annotate(geom = "text", x = 133, y = 41, label = "Sea of", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 133, y = 39.5, label = "Japan", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 148, y = 57, label = "Sea of Okhotsk", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 10, y = 73, label = "North Atlantic Ocean", 
+    fontface = "italic", color = "gray25", size = 3) +
+  annotate(geom = "text", x = 130, y = 20, label = "Philippine", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 130, y = 18.5, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  theme(panel.background = element_rect(fill="white",color="transparent"),
+        panel.border = element_rect(fill="transparent",color="black"),
+        panel.grid = element_blank(),
+        axis.title.x = element_text(size=7.5,color = "black"),
+        axis.title.y = element_text(size=7.5, angle=90),
+        axis.text.x = element_text(size=7.5),
+        axis.text.y = element_text(size=7.5),
+        legend.key.size = unit(0.28,"cm"),
+        legend.text.align = 0,
+        legend.text=element_text(size=7.5),
+        legend.title.align = 0.5,
+        legend.title = element_text(size = 7.5),
+        legend.margin = margin(unit = "cm", t=0.05,r=0.08,b=0.05,l=0.08),
+        legend.box.background = element_rect(fill=alpha('white', 0.2),color="gray30",size = 0.15,),
+        legend.background = element_rect(fill=alpha('white', 0.45),color="gray30",size = 0.25),
+        legend.position = c(0.95,0.33))
+
+plot_map
+
+```
+
+
+```{r}
+ggsave(plot = plot_map, filename = "hengl map in 5000m res.png", units = "cm", width = 20, height = 10)
+```
+
+
+```{r}
+#graph of 2500m resolution
+library(ggplot2)
+library(ggspatial)
+
+plot_map1 <- ggplot() +
+  geom_sf(data=land_polyg_sf, fill=NA, size=0.2, alpha=0.3) +
+  geom_tile(data=map_2500_res, aes(x = x, y = y, fill = name)) +
+  geom_point(data = hengl_data, aes(x=longitude,y=latitude,fill=pnv),size=1,shape=21,stroke=0.3) +
+  scale_fill_manual(values = colores) +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(subtitle = "Hengl map with training data") +
+  ggspatial::annotation_north_arrow(location = "tr", which_north = "true",height = unit(10, "mm"), width = unit(10, "mm"), pad_x = unit(2, "mm"), pad_y = unit(2, "mm"),style = ggspatial::north_arrow_nautical(fill = c("grey40", "white"),line_col = "grey20", text_family = "Arial",text_size = 5.5)) +
+  annotate(geom = "text", x = 34.25, y = 43.25, label = "Black Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 20, y = 34, label = "Mediterranean Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 50.2, y = 42.5, label = "Caspian", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 50.4, y = 41, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 39, y = 20, label = "Red", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 39, y = 18.5, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 65, y = 20, label = "Arabian Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 90, y = 19, label = "Bay of", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 90, y = 17.5, label = "Bengal", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 116, y = 18, label = "South China", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 116, y = 17, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 151.5, y = 35, label = "Pacific Ocean", 
+    fontface = "italic", color = "gray25", size = 3) +
+  annotate(geom = "text", x = 133, y = 41, label = "Sea of", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 133, y = 39.5, label = "Japan", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 148, y = 57, label = "Sea of Okhotsk", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 10, y = 73, label = "North Atlantic Ocean", 
+    fontface = "italic", color = "gray25", size = 3) +
+  annotate(geom = "text", x = 130, y = 20, label = "Philippine", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 130, y = 18.5, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  theme(panel.background = element_rect(fill="white",color="transparent"),
+        panel.border = element_rect(fill="transparent",color="black"),
+        panel.grid = element_blank(),
+        axis.title.x = element_text(size=7.5,color = "black"),
+        axis.title.y = element_text(size=7.5, angle=90),
+        axis.text.x = element_text(size=7.5),
+        axis.text.y = element_text(size=7.5),
+        legend.key.size = unit(0.28,"cm"),
+        legend.text.align = 0,
+        legend.text=element_text(size=7.5),
+        legend.title.align = 0.5,
+        legend.title = element_text(size = 7.5),
+        legend.margin = margin(unit = "cm", t=0.05,r=0.08,b=0.05,l=0.08),
+        legend.box.background = element_rect(fill=alpha('white', 0.2),color="gray30",size = 0.15,),
+        legend.background = element_rect(fill=alpha('white', 0.45),color="gray30",size = 0.25),
+        legend.position = c(0.95,0.33))
+
+plot_map1
+```
+
+
+```{r}
+ggsave(plot = plot_map1, filename = "hengl map in 2500m res.png", units = "cm", width = 20, height = 10)
+```
+
+
+
+#testing data distribution map
+```{r}
+testing_map<- stesting_sample %>%
+  dplyr::select(pnv,id_entity,id_sample,longitude, latitude, abelia:zygophyllaceae) %>%
+  pivot_longer(cols = -c(pnv,id_entity,id_sample, longitude, latitude)) %>%
+  filter(value > 0) %>%
+  group_by(id_sample) %>%
+  mutate(total_sum = sum(value),
+         percent = (value/total_sum)*100) %>%
+  ungroup() %>%
+  dplyr::select(pnv,id_entity,id_sample,name, percent, longitude, latitude)
+
+plot_test <- ggplot() +
+  geom_sf(data=land_polyg_sf, fill=NA, size=0.2, alpha=0.3) +
+  geom_tile(data=map_2500_res, aes(x = x, y = y, fill = name)) +
+  geom_point(data = hengl_data, aes(x=longitude,y=latitude,fill=pnv),size=1,shape=21,stroke=0.3) +
+  geom_point(data = testing_map, aes(x=longitude,y=latitude,fill=pnv), color = "red",size=1,shape=21,stroke=0.3) +
+  scale_fill_manual(values = colores) +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(subtitle = "Hengl map with modern data") +
+  ggspatial::annotation_north_arrow(location = "tr", which_north = "true",height = unit(10, "mm"), width = unit(10, "mm"), pad_x = unit(2, "mm"), pad_y = unit(2, "mm"),style = ggspatial::north_arrow_nautical(fill = c("grey40", "white"),line_col = "grey20", text_family = "Arial",text_size = 5.5)) +
+  annotate(geom = "text", x = 34.25, y = 43.25, label = "Black Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 20, y = 34, label = "Mediterranean Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 50.2, y = 42.5, label = "Caspian", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 50.4, y = 41, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 39, y = 20, label = "Red", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 39, y = 18.5, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 65, y = 20, label = "Arabian Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 90, y = 19, label = "Bay of", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 90, y = 17.5, label = "Bengal", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 116, y = 18, label = "South China", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 116, y = 17, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 151.5, y = 35, label = "Pacific Ocean", 
+    fontface = "italic", color = "gray25", size = 3) +
+  annotate(geom = "text", x = 133, y = 41, label = "Sea of", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 133, y = 39.5, label = "Japan", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 148, y = 57, label = "Sea of Okhotsk", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 10, y = 73, label = "North Atlantic Ocean", 
+    fontface = "italic", color = "gray25", size = 3) +
+  annotate(geom = "text", x = 130, y = 20, label = "Philippine", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  annotate(geom = "text", x = 130, y = 18.5, label = "Sea", 
+    fontface = "italic", color = "gray25", size = 1.9) +
+  theme(panel.background = element_rect(fill="white",color="transparent"),
+        panel.border = element_rect(fill="transparent",color="black"),
+        panel.grid = element_blank(),
+        axis.title.x = element_text(size=7.5,color = "black"),
+        axis.title.y = element_text(size=7.5, angle=90),
+        axis.text.x = element_text(size=7.5),
+        axis.text.y = element_text(size=7.5),
+        legend.key.size = unit(0.28,"cm"),
+        legend.text.align = 0,
+        legend.text=element_text(size=7.5),
+        legend.title.align = 0.5,
+        legend.title = element_text(size = 7.5),
+        legend.margin = margin(unit = "cm", t=0.05,r=0.08,b=0.05,l=0.08),
+        legend.box.background = element_rect(fill=alpha('white', 0.2),color="gray30",size = 0.15,),
+        legend.background = element_rect(fill=alpha('white', 0.45),color="gray30",size = 0.25),
+        legend.position = c(0.95,0.33))
+
+plot_test
+
+```
+
+```{r}
+ggsave(plot = plot_test, filename = "hengl map of modern data in 2500m res.png", units = "cm", width = 20, height = 10)
+```
+
+
+#fossil sites
+```{r}
+plot_fossil <- ggplot() +
+  geom_sf(data=land_polyg_sf, fill=NA, size=0.2, alpha=0.3) +
+  geom_point(data = pollen, aes(x=longitude,y=latitude),size=1,shape=21,stroke=0.3) +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(subtitle = "Fossil sites distribution") +
+  theme(panel.background = element_rect(fill="white",color="transparent"),
+        panel.border = element_rect(fill="transparent",color="black"),
+        panel.grid = element_blank() )
+  
+plot_fossil
+```
+
+
+```{r}
+ggsave(plot = plot_fossil, filename = "fossil sites distribution 2500m res.png", units = "cm", width = 20, height = 10)
+```
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,95 @@
+---
+title: "boxplot"
+output: html_document
+date: "2024-07-15"
+---
+
+
+```{r}
+pnv_name <- "steppe"
+pnv_sel <- "STEP"
+
+pnv_name <- "warm-temperate evergreen and mixed forest"
+pnv_sel <- "WTMF"
+
+pnv_name <- "xerophytic woods/scrub"
+pnv_sel <- "XRTW"
+
+pnv_name<- "temperate deciduous broadleaf forest"
+pnv_sel <- "TDBF"
+
+pnv_name <- "cool mixed forest"
+pnv_sel <- "CMXF"
+
+pnv_name <- "cold evergreen needleleaf forest"
+pnv_sel <- "CONF"
+
+pnv_name <- "desert"
+pnv_sel <- "DESE"
+
+pnv_name <- "temperate evergreen needleleaf open woodland"
+pnv_sel <- "TENW"
+
+pnv_name <- "tundra"
+pnv_sel <- "TUND"
+
+pnv_name <- "cold deciduous forest"
+pnv_sel <- "CODF"
+```
+
+
+```{r}
+top_taxa <- training_data %>%
+  select(name, !!sym(paste0("mean_taxa_", pnv_sel))) %>%
+  arrange(desc(!!sym(paste0("mean_taxa_", pnv_sel)))) %>%
+  slice_head(n = 25) %>%
+  dplyr::select(name) %>% 
+  distinct() %>%
+  pull()
+
+top_taxa_mean <- training_data %>%
+  select(name, !!sym(paste0("mean_taxa_", pnv_sel))) %>%
+  arrange(desc(!!sym(paste0("mean_taxa_", pnv_sel)))) %>%
+  slice_head(n = 25) %>%
+  rename(taxa = name, abundance = !!sym(paste0("mean_taxa_", pnv_sel)))
+
+top_taxa_perc <- srandom_data_percent %>% 
+  filter(pnv == pnv_sel) %>%
+  select(pnv, id_sample, all_of(top_taxa)) %>%
+  pivot_longer(cols = -c(pnv, id_sample), names_to = "taxa", values_to = "abundance")
+
+#Count positive occurrences (in different samples)
+positive_counts <- srandom_data_percent %>% 
+  filter(pnv == pnv_sel) %>%
+  select(pnv, id_sample, all_of(top_taxa)) %>%
+  summarise_all(~ sum(. > 0, na.rm = TRUE)) %>% 
+  pivot_longer(cols = -c(pnv, id_sample)) %>%
+  select(name,value)
+
+plot_boxes <- top_taxa_perc %>%  
+  ggplot(aes(x = factor(taxa, levels = top_taxa), y = abundance)) + 
+  geom_boxplot(outlier.alpha = 0.5, linewidth = 0.2, outlier.size = 0.2) +
+  geom_point(data = top_taxa_mean, aes(x = factor(taxa, levels = top_taxa), y = abundance), color = "deepskyblue", size = 0.5) +
+  expand_limits(y = c(-8, 80)) +
+  scale_y_continuous(breaks=seq(0, 100, 10)) +
+  geom_text(data = positive_counts, aes(x= name, y = -6, label = value), size=1.8, angle = 60, colour="dodgerblue4") +
+  labs(x="", y="Abundance (%)", subtitle = paste0(pnv_sel,": ", pnv_name, sep="")) +
+  theme(plot.title = element_text(size=8),
+        plot.subtitle = element_text(size=8),
+        axis.text.x = element_text(face = "italic",size=9, angle = 90, hjust = 1, vjust = 0.3),
+        axis.text.y = element_text(size=9),
+        axis.title.x = element_text(size=9),
+        axis.title.y = element_text(size=9),
+        plot.caption = element_text(size=9,hjust = 0, face = "bold"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA))
+
+plot_boxes
+
+ggsave(plot = plot_boxes, paste0("/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/boxplot_",pnv_sel,".png",sep=""), units = "cm", height = 8, width = 10)
+```
+
+
+```
