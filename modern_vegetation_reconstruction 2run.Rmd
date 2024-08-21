@@ -1,0 +1,266 @@
+---
+title: "vegetation_reconstruction"
+output: html_document
+date: "2024-04-21"
+---
+
+combine test_data nad train_data
+```{r}
+strain_data <- read.csv("/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/training_data.csv") 
+stest_data <- read.csv("/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/testing_data.csv")
+
+all <- full_join(strain_data, stest_data, by = "name") %>%
+  filter(!is.na(percent)) %>% #delete na value in testing data.
+  filter(!is.na(mean_taxa_STEP)) #delete na value in training data.
+
+# check if there is NA value in all dataset
+sum(is.na(all$percent))
+sum(is.na(all$mean_taxa_STEP))
+sum(is.na(all$sd_taxa_STEP))
+sum(is.na(all))
+
+#create metadata of "all" document.
+all_meta <- all %>% dplyr::select(pnv, id_entity, id_sample) %>% distinct()
+
+write.csv(all,"/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/all.csv", row.names = F)
+
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+#Get observed dominant biome 3971obs
+sobs_biome <- all %>% 
+  filter(!is.na(id_sample)) %>%
+  dplyr::select(id_entity,id_sample,pnv) %>%
+  distinct() %>%
+  group_by(id_entity) %>% 
+  count(pnv) %>%
+  slice(which.max(n)) %>%
+  rename(observed_biome = pnv) %>%
+  ungroup() %>%
+  dplyr::select(id_entity, observed_biome) 
+```
+
+calculate the dissimilarity index, the equation can be found in the "a new method..."
+```{r}
+#calculate dissimilarity of each taxon by using the equation between the percent, mean and sd value of each biome to select the smallest index as possible biome. type
+EpsVal<- 0.5
+dis_index <- all %>%
+  mutate(Epsilon = EpsVal) %>%
+  mutate(STEP_Sqrt=(percent-mean_taxa_STEP)^2/((sd_taxa_STEP+Epsilon)^2)) %>%
+  mutate(WTMF_Sqrt=(percent-mean_taxa_WTMF)^2/((sd_taxa_WTMF+Epsilon)^2)) %>%
+  mutate(XRTW_Sqrt=(percent-mean_taxa_XRTW)^2/((sd_taxa_XRTW+Epsilon)^2)) %>%
+  mutate(TDBF_Sqrt=(percent-mean_taxa_TDBF)^2/((sd_taxa_TDBF+Epsilon)^2)) %>%
+  mutate(CMXF_Sqrt=(percent-mean_taxa_CMXF)^2/((sd_taxa_CMXF+Epsilon)^2)) %>%
+  mutate(CONF_Sqrt=(percent-mean_taxa_CONF)^2/((sd_taxa_CONF+Epsilon)^2)) %>%
+  mutate(DESE_Sqrt=(percent-mean_taxa_DESE)^2/((sd_taxa_DESE+Epsilon)^2)) %>%
+  mutate(TENW_Sqrt=(percent-mean_taxa_TENW)^2/((sd_taxa_TENW+Epsilon)^2)) %>%
+  mutate(TUND_Sqrt=(percent-mean_taxa_TUND)^2/((sd_taxa_TUND+Epsilon)^2)) %>%
+  mutate(CODF_Sqrt=(percent-mean_taxa_CODF)^2/((sd_taxa_CODF+Epsilon)^2)) %>%
+  dplyr::select(id_sample,percent, id_entity, pnv, name, STEP_Sqrt, TDBF_Sqrt, CODF_Sqrt, TUND_Sqrt, CMXF_Sqrt, DESE_Sqrt, WTMF_Sqrt, XRTW_Sqrt, CONF_Sqrt, TENW_Sqrt)%>%
+#select id_sample and the dissimilarity index result
+  group_by(id_sample) %>%
+  summarise(across(c(TUND_Sqrt,CMXF_Sqrt,DESE_Sqrt,STEP_Sqrt, WTMF_Sqrt, XRTW_Sqrt, TDBF_Sqrt,CONF_Sqrt, TENW_Sqrt, CODF_Sqrt), sum )) %>% #group them by id_sample, then calculate each biome number of this id_sample
+  mutate(across(c(TUND_Sqrt,CMXF_Sqrt, DESE_Sqrt,STEP_Sqrt, WTMF_Sqrt, XRTW_Sqrt, TDBF_Sqrt,CONF_Sqrt, TENW_Sqrt, CODF_Sqrt), sqrt)) %>% 
+  ungroup()
+```
+
+
+calculate the similarity index by using exp equation, whcih can be calculated as:
+```{r}
+
+#the largest value means the most possible to be this biome.
+simi_index <- dis_index %>% 
+  mutate(TUND=exp(-TUND_Sqrt/100)) %>% 
+  mutate(DESE=exp(-DESE_Sqrt/100)) %>% 
+  mutate(STEP=exp(-STEP_Sqrt/100)) %>% 
+  mutate(XRTW=exp(-XRTW_Sqrt/100)) %>% 
+  mutate(WTMF=exp(-WTMF_Sqrt/100)) %>% 
+  mutate(TDBF=exp(-TDBF_Sqrt/100)) %>% 
+  mutate(CMXF=exp(-CMXF_Sqrt/100)) %>% 
+  mutate(CONF=exp(-CONF_Sqrt/100)) %>% 
+  mutate(TENW=exp(-TENW_Sqrt/100)) %>% 
+  mutate(CODF=exp(-CODF_Sqrt/100)) %>% 
+  dplyr::select(id_sample,TUND, DESE, STEP, WTMF, XRTW, TDBF, CMXF, CONF, TENW, CODF)
+
+```
+
+get the thresholds for non-analogue biome.
+```{r}
+library(cutpointr)
+# Join and reshape data
+similarity <- inner_join(all_meta, simi_index, by = "id_sample") %>% pivot_longer(!c(pnv, id_entity, id_sample), names_to = "biome", values_to = "simi_score")
+
+# Get unique biome list
+biome_list <- unique(similarity$pnv)
+
+# Create combinations of biome pairs
+cutpoint_optimo_roc <- expand.grid(biome_list, biome_list) %>%
+  filter(Var1 != Var2) %>%
+  mutate(optimal_cutpoint = pmap_dfr(list(Var1, Var2), ~{
+    similarity2 <- similarity %>% filter(pnv == ..1, biome %in% c(..1, ..2))
+    cp <- cutpointr(similarity2, x = simi_score, class = biome, direction = ">=", 
+                    pos_class = ..1, method = maximize_metric, metric = sum_sens_spec)
+    as.data.frame(cp$optimal_cutpoint) %>%
+      mutate(biome = ..1, paired_biome = ..2)
+  })) %>%
+  unnest(optimal_cutpoint)
+
+
+thresholds_paired <- cutpoint_optimo_roc %>% group_by(biome) %>% slice_min(order_by = `cp$optimal_cutpoint`) %>% ungroup() |> rename(threshold1 = `cp$optimal_cutpoint`) 
+
+thresholds <- cutpoint_optimo_roc %>%
+  group_by(biome) %>%
+  slice_min(order_by = `cp$optimal_cutpoint`) %>%
+  ungroup() %>%
+  rename(threshold1 = `cp$optimal_cutpoint`) %>%
+  select(biome, threshold1) %>%
+  distinct() %>%
+  mutate(threshold1 = threshold1)
+
+saveRDS(thresholds, "/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/non_analogue_thresholds.rds")
+
+write.csv(thresholds,"/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/thresholds.csv")
+```
+
+
+```{r}
+tema <- theme(plot.background = element_rect(fill = "transparent", colour="transparent"),
+              panel.background = element_rect(fill="transparent", colour="transparent"),
+              panel.border = element_rect(colour = "black", fill="transparent"),
+              plot.title = element_blank(),
+              plot.subtitle= element_text(size=8, face="bold", color="black"),
+              axis.title.x = element_text(size=8,color = "black"),
+              axis.title.y = element_text(size=8, angle=90),
+              axis.text.x = element_text(size=8),
+              axis.text.y = element_text(size=8))
+```
+
+Plots for non-anologue thresholds
+```{r}
+library(cutpointr)
+library(ggplot2)
+library(dplyr)
+library(purrr)
+library(tidyr)
+
+# Function to generate and save plots
+generate_and_save_plots <- function(pnv_selected, pnv_paired, cp, similarity2) {
+  # Plot ROC curve
+  p_roc <- plot_roc(cp) + 
+    labs(subtitle = paste("( )", pnv_selected, "-", pnv_paired)) +
+    geom_hline(yintercept = cp$sensitivity, linetype = 2, size = 0.4, color = "gray48") +
+    geom_vline(xintercept = 1 - cp$specificity, linetype = 2, size = 0.4, color = "gray48") +
+    annotate("text", label = paste("Optimal cutpoint:", round(cp$optimal_cutpoint, 4)), 
+             x = 1 - cp$specificity + 0.32, y = cp$sensitivity - 0.038, size = 3) +
+    annotate("text", label = paste("AUC:", round(cp$AUC, 4)), x = 0.84, y = 0.05, size = 3) + tema
+  
+  # Plot metric values by cutpoint
+  p_metric <- plot_metric(cp) + 
+    labs(y = "Sensitivity + Specificity", title = "Metric values by cutpoint value", 
+         subtitle = paste(pnv_selected, "-", pnv_paired, "\nin-sample results")) +
+    geom_vline(xintercept = cp$optimal_cutpoint, linetype = 2, size = 0.3, color = "gray48") + tema
+  
+  # Plot similarity score density
+  p_density <- similarity2 %>%
+    ggplot(aes(x = simi_score, color = biome)) +
+    geom_vline(xintercept = cp$optimal_cutpoint, linetype = 2, size = 0.3, color = "gray48") +
+    geom_density(size = 0.75) +
+    annotate("text", label = paste("Optimal cutpoint:", round(cp$optimal_cutpoint, 4)), 
+             x = cp$optimal_cutpoint - 0.018, y = 7, size = 3, angle = 90, color = "gray48") +
+    theme_bw() +
+    guides(color = FALSE) +
+    labs(x = "Similarity scores", y = "Density", subtitle = paste("( )", pnv_selected, "-", pnv_paired)) + tema
+
+  ggsave(filename = paste("/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/plot_density_", pnv_selected, "_", pnv_paired, ".png", sep = ""), plot = p_density, units = "cm", width = 8, height = 8)
+}
+
+# Apply function to each row of cutpoint_optimo_roc
+walk2(cutpoint_optimo_roc$Var1, cutpoint_optimo_roc$Var2, ~{
+  pnv_selected <- .x
+  pnv_paired <- .y
+  
+  # Filter data for the current combination
+  similarity2 <- similarity %>% filter(pnv == pnv_selected, biome %in% c(pnv_selected, pnv_paired))
+  
+  # Determine optimal cutpoint
+  cp <- cutpointr(similarity2, x = simi_score, class = biome, direction = ">=", 
+                  pos_class = pnv_selected, method = maximize_metric, metric = sum_sens_spec)
+  
+  # Generate and save plots
+  generate_and_save_plots(pnv_selected, pnv_paired, cp, similarity2)
+})
+
+```
+
+
+compare the accuracy between observed biome and predicted biome.
+```{r}
+#based on the similarity index, choose the largest value as predicted biome.
+sqsc <- simi_index %>% 
+  pivot_longer(cols = -(id_sample), names_to = "predicted_biome") %>%
+  group_by(id_sample) %>%
+  slice_max(value) %>%
+  ungroup() %>%
+  inner_join(thresholds, by = c("predicted_biome"="biome")) %>%
+  mutate(analogue = value > threshold1) %>%
+  filter(analogue == TRUE) %>%
+  dplyr::select(-analogue)
+
+#get the most common biome in entities in duplicates
+pred_biome <- all %>% 
+  filter(!is.na(id_sample)) %>%
+  dplyr::select(id_entity,id_sample) %>% 
+  distinct() %>%
+  inner_join(sqsc, by = "id_sample") %>% 
+  #combine the predicted biomes with correlated id_entity by id_sample.
+  group_by(id_entity) %>%
+  count(predicted_biome) %>% 
+  #check if there is duplicated predicted biome in same id_entity, the most frequent biome will be choosen.
+  slice(which.max(n)) %>% 
+  ungroup() %>% 
+  dplyr::select(id_entity,predicted_biome)
+
+#make a comparison
+comparison_2 <- pred_biome %>% 
+  inner_join(sobs_biome, by="id_entity") #combine observed result with predicted result.
+
+##condusion matrix，转化为有序因子，按指定的顺序进行排列
+observed_2<-ordered(comparison_2$observed_biome,levels=c('TUND', 'DESE', 'STEP',  'TENW', 'XRTW', 'TDBF', 'CMXF', 'CONF', 'WTMF','CODF'))
+
+predicted_2 <-ordered(comparison_2$predicted_biome,levels=c('TUND', 'DESE', 'STEP',  'TENW', 'XRTW', 'TDBF', 'CMXF', 'CONF', 'WTMF','CODF'))
+
+library(MLmetrics)
+zatab2<-ConfusionMatrix(y_true=observed_2,  y_pred=predicted_2 )
+#x-axis is predicted value and y-axis is the true value
+zatab2
+write.csv(zatab2,"/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/zatab2.csv")
+
+#table in percentage
+rzatab2<-round(prop.table(zatab2,1)*100) #means calucltes the precentage based on row.
+rzatab2
+write.csv(rzatab2,"/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/rzatab2.csv")
+
+#change the charactors to factors
+comparison_2$predicted_biome <-as.factor(comparison_2$predicted_biome)
+
+comparison_2$observed_biome <- as.factor(comparison_2$observed_biome)
+
+#Calculation of accuracy
+library(mlr3measures)
+
+acc <- acc(comparison_2$observed_biome, comparison_2$predicted_biome) 
+
+#Calculation of balanced accuracy for a multiclass categorization (Average of recalls)
+bacc <- bacc(comparison_2$observed_biome, comparison_2$predicted_biome) 
+
+#create a metric
+metrics <- data.frame(Accuracy=(acc*100),
+                      Balanced_accuracy=(bacc*100))
+
+write.csv(metrics,"/Users/nanqiangbeidiao/vegetation reconstruction/saved documents/metrics.csv")
+
+```
